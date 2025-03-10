@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Solana Video Streaming</title>
+  
+  <!-- Buffer polyfill -->
+  <script>
+    if (typeof window.Buffer === 'undefined') {
+      var script = document.createElement('script');
+      script.src = "https://cdn.jsdelivr.net/npm/buffer@6.0.3/dist/buffer.min.js";
+      script.defer = true;
+      document.head.appendChild(script);
+    } else {
+      console.log("Buffer is already defined, skipping polyfill.");
+    }
+  </script>
+  
+  <!-- Load the correct IIFE bundle for @solana/web3.js -->
+  <script src="https://unpkg.com/@solana/web3.js@1.98.0/lib/index.iife.min.js"></script>
+</head>  
+<body>
+  <h1>Solana Video Streaming</h1>
+  <button id="payButton5">Pay 0.1 SOL for 5 mins</button>
+  <button id="payButton60">Pay 0.3 SOL for 60 mins</button>
+  <video id="videoPlayer" controls style="display:none;"></video>
+
+  <!-- Load script.js at the end -->
+  <script src="script.js"></script>
+</body>
+</html>
