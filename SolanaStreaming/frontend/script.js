@@ -1,42 +1,76 @@
-const { Connection, PublicKey, Transaction, SystemProgram, LAMPORTS_PER_SOL } = require('@solana/web3.js');
+document.addEventListener("DOMContentLoaded", () => {
+  console.log("DOM fully loaded!");
 
-// Solana DEVNET connection
-const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
-const receiverPublicKey = new PublicKey('YOUR_DEVNET_PUBLIC_KEY'); // Same as backend
+  // Ensure solanaWeb3 is properly loaded from the browser
+  const solanaWeb3 = window.solanaWeb3js?.default || window.solanaWeb3 || window.web3;
 
-async function payAndStream(amount) {
-  // Assume Phantom wallet is installed
-  const provider = window.solana;
-  if (!provider) return alert('Please install Phantom wallet');
+  if (!solanaWeb3) {
+    console.error("Solana Web3.js is not loaded. Check your script import.");
+    return;
+  }
 
-  await provider.connect();
-  const senderPublicKey = provider.publicKey;
+  const payButton5 = document.getElementById("payButton5");
+  const payButton60 = document.getElementById("payButton60");
+  const videoPlayer = document.getElementById("videoPlayer");
 
-  const transaction = new Transaction().add(
-    SystemProgram.transfer({
-      fromPubkey: senderPublicKey,
-      toPubkey: receiverPublicKey,
-      lamports: amount * LAMPORTS_PER_SOL,
-    })
-  );
+  async function payAndStream(amount) {
+    console.log(`Attempting to pay ${amount} SOL...`);
 
-  const { signature } = await provider.signAndSendTransaction(transaction);
-  await connection.confirmTransaction(signature);
+    if (!window.solana || !window.solana.isPhantom) {
+      alert("Please install Phantom Wallet");
+      return;
+    }
 
-  // Verify payment and get video details
-  const response = await fetch(`http://localhost:3000/pay?signature=${signature}&amount=${amount}`);
-  const { videoUrl, duration } = await response.json();
+    try {
+      await window.solana.connect();
+      const senderPublicKey = window.solana.publicKey;
+      console.log(`Connected to Phantom: ${senderPublicKey.toString()}`);
 
-  // Play video
-  const video = document.getElementById('videoPlayer');
-  video.src = videoUrl;
-  video.style.display = 'block';
-  video.play();
+      // FIX: Ensure solanaWeb3 is being accessed correctly
+      const transaction = new solanaWeb3.Transaction();
+      transaction.add(
+        solanaWeb3.SystemProgram.transfer({
+          fromPubkey: senderPublicKey,
+          toPubkey: new solanaWeb3.PublicKey("2FBMXoq7f7Ky2uYEsEMaDuWEyRpUWKM7fMtpYGHV3ufw"),
+          lamports: amount * solanaWeb3.LAMPORTS_PER_SOL,
+        })
+      );
 
-  // Stop after duration
-  setTimeout(() => video.pause(), duration * 1000);
-}
+      console.log("Transaction created:", transaction);
 
-// Event listeners
-document.getElementById('payButton').addEventListener('click', () => payAndStream(0.1));
-document.getElementById('payButton60').addEventListener('click', () => payAndStream(0.3));
+      const { signature } = await window.solana.signAndSendTransaction(transaction);
+      console.log(`Transaction sent! Signature: ${signature}`);
+
+      const response = await fetch(`http://localhost:3000/pay?signature=${signature}&amount=${amount}`);
+      const data = await response.json();
+
+      if (!data.videoUrl) {
+        console.error("Error: No video URL received", data);
+        alert("Payment successful, but failed to load video.");
+        return;
+      }
+
+      videoPlayer.src = data.videoUrl;
+      videoPlayer.style.display = "block";
+      videoPlayer.play();
+      setTimeout(() => videoPlayer.pause(), data.duration * 1000);
+
+      console.log("Video started playing...");
+    } catch (error) {
+      console.error("Payment or video error:", error);
+      alert("Transaction failed. Please try again.");
+    }
+  }
+
+  payButton5.addEventListener("click", () => {
+    console.log("Button for 0.1 SOL clicked");
+    payAndStream(0.1);
+  });
+
+  payButton60.addEventListener("click", () => {
+    console.log("Button for 0.3 SOL clicked");
+    payAndStream(0.3);
+  });
+
+  console.log("Event listeners added.");
+});
