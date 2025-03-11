@@ -68,7 +68,7 @@ cp /path/to/your/video.mp4 public/videos/video1.mp4
 ### 4. Fund Your Phantom Wallet (Devnet)
 - Open your browser and ensure the Phantom Wallet extension is installed.
 - Switch Phantom to **Devnet** mode (Settings > Network > Devnet).
-- Fund your wallet with Devnet SOL:
+- Fund your wallet with Devnet SOL (free SOL - by airdropping them):
   - Visit [Solana Faucet](https://faucet.solana.com/).
   - Enter your Phantom wallet’s public key and request 1-2 SOL.
 - Verify your wallet has funds (you’ll see 1-2 SOL in Devnet balance).
