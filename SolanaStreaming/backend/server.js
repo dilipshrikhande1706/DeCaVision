@@ -1,80 +1,116 @@
 const express = require('express');
 const path = require('path');
-const { Connection, PublicKey } = require('@solana/web3.js');
+const { Connection, PublicKey, SystemProgram } = require('@solana/web3.js');
+const bs58 = require('bs58'); // Now resolves to bs58@4.0.1
 const app = express();
 const PORT = 3000;
 
-const LAMPORTS_PER_SOL = 1000000000; // Number of lamports per SOL
+const LAMPORTS_PER_SOL = 1000000000;
 const paymentTiers = {
-  0.1: 60,  // Example tier: 0.1 SOL -> 60 seconds video
-  0.5: 300, // Example tier: 0.5 SOL -> 300 seconds video
-  1: 600    // Example tier: 1 SOL -> 600 seconds video
+  0.1: 60,  // 0.1 SOL -> 60 seconds
+  0.5: 300, // 0.5 SOL -> 300 seconds
+  1: 600    // 1 SOL -> 600 seconds
 };
 
-const connection = new Connection('https://api.mainnet-beta.solana.com', 'confirmed');
+const EXPECTED_RECEIVER = new PublicKey("Bj15jk2AUmGtTsFrBKpZcoVAxtjWQBQs2wCfjSe6fXkn");
 
-// Middleware to parse JSON
+const connection = new Connection('https://api.devnet.solana.com', 'confirmed');
+
 app.use(express.json());
-
-// Serve static files from the 'public' directory
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
-// Add a route for the root URL
 app.get('/', (req, res) => {
   res.send('Welcome to the Solana Streaming API! Use /pay for payment verification.');
 });
 
-// Handle payment verification
 app.get('/pay', async (req, res) => {
   const { signature, amount } = req.query;
 
-  // Log the received parameters for debugging
   console.log("Received signature:", signature);
   console.log("Received amount:", amount);
 
-  // Validate required parameters
   if (!signature || !amount) {
     return res.status(400).json({ error: 'Missing required parameters: signature and amount' });
   }
 
   try {
-    // Ensure amount is a float
     const solAmount = parseFloat(amount);
-
     if (isNaN(solAmount)) {
       return res.status(400).json({ error: 'Invalid amount format' });
     }
 
-    // Fetch the transaction details using the signature
-    const tx = await connection.getTransaction(signature, { commitment: 'confirmed' });
-
+    const tx = await connection.getTransaction(signature, {
+      commitment: 'confirmed',
+      maxSupportedTransactionVersion: 0
+    });
     if (!tx) {
       return res.status(400).json({ error: 'Transaction not found' });
     }
 
-    // Ensure the transaction contains valid metadata
-    if (!tx.meta || !tx.meta.postBalances || !tx.meta.preBalances) {
-      return res.status(400).json({ error: 'Invalid transaction metadata' });
+    console.log("Transaction details:", JSON.stringify(tx, null, 2));
+
+    const instructions = tx.transaction.message.instructions;
+    if (!instructions || instructions.length === 0) {
+      return res.status(400).json({ error: 'No instructions found in transaction' });
     }
 
-    // Calculate the payment amount in SOL
-    const paymentAmount = tx.meta.postBalances[1] - tx.meta.preBalances[1];
-    const solAmountFromTx = paymentAmount / LAMPORTS_PER_SOL;
+    instructions.forEach((instr, index) => {
+      console.log(`Instruction ${index}: programIdIndex = ${instr.programIdIndex}, programId = ${tx.transaction.message.accountKeys[instr.programIdIndex].toString()}`);
+    });
 
-    // Check if the amount is valid
-    if (!paymentTiers[solAmountFromTx]) {
+    const transferInstruction = instructions.find((instr) => {
+      const programId = tx.transaction.message.accountKeys[instr.programIdIndex];
+      return programId && programId.equals(SystemProgram.programId);
+    });
+
+    if (!transferInstruction) {
+      return res.status(400).json({ error: 'No valid SystemProgram.transfer instruction found' });
+    }
+
+    let parsedData = transferInstruction.data;
+    if (!parsedData || (typeof parsedData === 'string' && parsedData.length === 0)) {
+      return res.status(400).json({ error: 'Invalid instruction data' });
+    }
+
+    // Convert string to Buffer using bs58
+    if (typeof parsedData === 'string') {
+      console.log("Converting string data to Buffer:", parsedData);
+      if (typeof bs58.decode !== 'function') {
+        console.error("bs58.decode is not a function. bs58 export:", bs58);
+        throw new Error("bs58 library is not correctly imported");
+      }
+      parsedData = Buffer.from(bs58.decode(parsedData));
+    }
+
+    if (!Buffer.isBuffer(parsedData) || parsedData.length < 12) {
+      console.error("parsedData is not a valid Buffer:", typeof parsedData, parsedData);
+      return res.status(500).json({ error: 'Invalid data format for parsing lamports' });
+    }
+
+    const lamports = parsedData.readBigUInt64LE(4);
+    const solAmountFromTx = Number(lamports) / LAMPORTS_PER_SOL;
+
+    const toPubkeyIndex = transferInstruction.accounts[1];
+    const toPubkey = tx.transaction.message.accountKeys[toPubkeyIndex];
+    if (!toPubkey.equals(EXPECTED_RECEIVER)) {
       return res.status(400).json({
-        error: 'Invalid payment amount',
-        receivedAmount: solAmountFromTx,
-        expectedAmounts: Object.keys(paymentTiers)
+        error: 'Invalid receiver address',
+        receivedReceiver: toPubkey.toString(),
+        expectedReceiver: EXPECTED_RECEIVER.toString()
       });
     }
 
-    // Select a video duration and URL based on the payment amount
-    const duration = paymentTiers[solAmountFromTx];
-    const videoUrl = `/videos/video${Math.floor(Math.random() * 4) + 1}.mp4`;
+    if (!paymentTiers[solAmountFromTx] || solAmountFromTx !== solAmount) {
+      return res.status(400).json({
+        error: 'Invalid payment amount',
+        receivedAmount: solAmountFromTx,
+        expectedAmounts: Object.keys(paymentTiers),
+      });
+    }
 
-    // Respond with the video URL and duration
+    const duration = paymentTiers[solAmountFromTx];
+    const videoUrl = '/videos/video1.mp4';
+
     res.json({ videoUrl, duration });
   } catch (error) {
     console.error("Error verifying transaction:", error);
@@ -82,7 +118,6 @@ app.get('/pay', async (req, res) => {
   }
 });
 
-// Start the server
 app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
